@@ -1,0 +1,7 @@
+.ipynb_checkpoints
+*.pdf
+logs
+plugins
+.env
+test.ipynb
+.terraform*
