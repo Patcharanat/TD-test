@@ -1,5 +1,6 @@
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.operators.bash import BashOperator
 from datetime import timedelta, datetime
 from pymongo import MongoClient
 import os
@@ -80,14 +81,20 @@ with DAG(
         python_callable=_transform,
     )
 
+    # sanitize = BashOperator(
+    #     task_id="sanitization_production",
+    #     bash_command="python src/dags/text_sanitizer.py source.txt target.txt",
+    # )
+
     load = PythonOperator(
         task_id="load",
         python_callable=_load,
     )
 
     clear_staging = PythonOperator(
-        task_id="load",
+        task_id="clear_staging",
         python_callable=_clear_staging,
     )
 
     extract >> transform >> load >> clear_staging
+    # sanitize >> load
