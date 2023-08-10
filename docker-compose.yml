@@ -1,7 +1,10 @@
 version: '3'
 x-airflow-common:
   &airflow-common
-  image: apache/airflow:latest
+  # image: apache/airflow:latest
+  build:
+    context: .
+    dockerfile: Dockerfile
   environment:
     - AIRFLOW__CORE__EXECUTOR=LocalExecutor
     - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/postgresdb

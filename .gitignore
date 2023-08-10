@@ -3,5 +3,4 @@
 logs
 plugins
 .env
-test.ipynb
 .terraform*
