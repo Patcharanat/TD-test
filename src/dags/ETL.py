@@ -39,7 +39,18 @@ def _extract(
 
     df['_id'] = df['_id'].astype(str)
 
-    df.to_parquet(destination_blob_name)
+    # denormalize data******
+    denormalized_df = pd.json_normalize(
+        df.to_dict('records'), 
+        meta=['_id', 'account_id', 'transaction_count', 'bucket_start_date', 'bucket_end_date'], 
+        record_path='transactions'
+    )
+
+    # sort columns
+    sorted_col = list(df.columns) + list(df['transactions'][0][0].keys())
+    sorted_col_denorm_df = denormalized_df.reindex(axis=1, labels=sorted_col).drop(columns=['transactions'])
+
+    sorted_col_denorm_df.to_parquet(destination_blob_name)
 
     # Load data to GCP Bucket (Data Lake)
     storage_client = gcs.Client.from_service_account_json(credentials_path)
@@ -64,20 +75,10 @@ def _transform():
     # open the file and read it into a pandas dataframe
     with fs.open(f"{BUCKET_NAME}/data.parquet", 'rb') as f:
         df = pd.read_parquet(f)
-
-    # transform data
-    denormalized_df = pd.json_normalize(
-        df.to_dict('records'), 
-        meta=['_id', 'account_id', 'transaction_count', 'bucket_start_date', 'bucket_end_date'], 
-        record_path='transactions'
-    )
-    # sort columns
-    sorted_col = list(df.columns) + list(df['transactions'][0][0].keys())
-    sorted_col_denorm_df = denormalized_df.reindex(axis=1, labels=sorted_col).drop(columns=['transactions'])
     
     # normalize data
-    table_1 = sorted_col_denorm_df[['_id', 'account_id', 'transaction_count', 'bucket_start_date', 'bucket_end_date']]
-    table_2 = sorted_col_denorm_df[['_id', 'date', 'amount', 'transaction_code', 'symbol', 'price', 'total']]
+    table_1 = df[['_id', 'account_id', 'transaction_count', 'bucket_start_date', 'bucket_end_date']]
+    table_2 = df[['_id', 'date', 'amount', 'transaction_code', 'symbol', 'price', 'total']]
 
     # save to parquet
     table_1.to_parquet('table_DIM.parquet')
@@ -138,24 +139,17 @@ def _clear_staging():
     logging.info("Clearing staging area")
     """Deletes a blob from the bucket."""
     bucket_name = BUCKET_NAME
-    blob_names = ['table_DIM.parquet', 'table_FACT.parquet']
 
     storage_client = gcs.Client.from_service_account_json(CREDENTIALS_PATH)
 
     bucket = storage_client.bucket(bucket_name)
-    for blob_name in blob_names:
-        blob = bucket.blob(blob_name)
-        generation_match_precondition = None
+    
+    blobs = bucket.list_blobs(prefix="staging_area")
 
-        # Optional: set a generation-match precondition to avoid potential race conditions
-        # and data corruptions. The request to delete is aborted if the object's
-        # generation number does not match your precondition.
-        blob.reload()  # Fetch blob metadata to use in generation_match_precondition.
-        generation_match_precondition = blob.generation
+    for blob in blobs:
+        blob.delete()
 
-        blob.delete(if_generation_match=generation_match_precondition)
-
-        logging.info(f"Blob {blob_name} deleted.")
+    logging.info(f"All blobs in staging area are deleted.")
 
 default_args ={
     "owner": "Patcharanat (Ken) :D",
