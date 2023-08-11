@@ -5,6 +5,8 @@ x-airflow-common:
   build:
     context: .
     dockerfile: Dockerfile
+  env_file: 
+    - .env
   environment:
     - AIRFLOW__CORE__EXECUTOR=LocalExecutor
     - AIRFLOW__CORE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres:5432/postgresdb
@@ -32,6 +34,8 @@ services:
       - POSTGRES_PORT=5432
     ports:
       - 5432:5432
+    volumes:
+      - ./src/postgres-db-volume:/var/lib/postgresql/data
 
   airflow-init:
     << : *airflow-common
@@ -63,5 +67,7 @@ services:
     container_name: airflow_scheduler
     restart: always
 
+volumes:
+  postgres-db-volume:
 # template: https://github.com/marclamberti/docker-airflow/blob/main/docker-compose.yml
 # modified by: patcharanat

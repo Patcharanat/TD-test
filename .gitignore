@@ -5,3 +5,7 @@ plugins
 .env
 .terraform*
 *.cpython-*
+td_service_account.json
+terraform.tfstate*
+postgres-db-volume
+__pycache__

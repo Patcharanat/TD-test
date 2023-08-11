@@ -1,24 +1,29 @@
 from airflow import DAG
+from airflow.utils import timezone
 from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 from datetime import timedelta, datetime
 from pymongo import MongoClient
 import os
 import pandas as pd
-import google.cloud.storage as gcs
 import logging
+import google.cloud.storage as gcs
+import gcsfs
+from google.cloud import bigquery
 
 # env contains the confidential variables
-MONGODB_USERNAME = os.environ.get("MONGODB_USERNAME")
-MONGODB_PASSWORD = os.environ.get("MONGODB_PASSWORD")
-GCP_BUCKET = "TD_BUCKET"
-credentials_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+MONGODB_USERNAME = os.environ["MONGODB_USERNAME"]
+MONGODB_PASSWORD = os.environ["MONGODB_PASSWORD"]
+BUCKET_NAME = os.environ["GCP_BUCKET"]
+PROJECT_ID = os.environ["PROJECT_ID"]
+CREDENTIALS_PATH = os.environ["GOOGLE_APPLICATION_CREDENTIALS"]
+DATASET_NAME = os.environ["DATASET_NAME"]
 
 def _extract(
-        destination_blob_name: str = "data.parquet", 
-        gcp_bucket: str = GCP_BUCKET, 
-        credentials_path: str = credentials_path
+        destination_blob_name: str = "data.parquet",
+        credentials_path: str = CREDENTIALS_PATH
     ):
+    logging.info("Extracting data from source")
     # Connect to MongoDB ref: https://www.mongodb.com/languages/python
     CONNECTION_STRING = f"mongodb+srv://{MONGODB_USERNAME}:{MONGODB_PASSWORD}@cluster0.ofns0fq.mongodb.net/"
 
@@ -32,12 +37,14 @@ def _extract(
 
     df = pd.DataFrame(data)
 
+    df['_id'] = df['_id'].astype(str)
+
     df.to_parquet(destination_blob_name)
 
     # Load data to GCP Bucket (Data Lake)
     storage_client = gcs.Client.from_service_account_json(credentials_path)
     
-    bucket = storage_client.bucket(gcp_bucket)
+    bucket = storage_client.bucket(BUCKET_NAME)
     
     blob = bucket.blob(destination_blob_name)
     
@@ -49,20 +56,115 @@ def _extract(
     logging.info(f"Extracted data from source as {destination_blob_name}")
 
 def _transform():
-    print("Transforming data")
+    logging.info("Transforming data")
+    
+    # authenticate to GCP with gcfs
+    fs = gcsfs.GCSFileSystem(project=PROJECT_ID, token=CREDENTIALS_PATH)
+    
+    # open the file and read it into a pandas dataframe
+    with fs.open(f"{BUCKET_NAME}/data.parquet", 'rb') as f:
+        df = pd.read_parquet(f)
+
+    # transform data
+    denormalized_df = pd.json_normalize(
+        df.to_dict('records'), 
+        meta=['_id', 'account_id', 'transaction_count', 'bucket_start_date', 'bucket_end_date'], 
+        record_path='transactions'
+    )
+    # sort columns
+    sorted_col = list(df.columns) + list(df['transactions'][0][0].keys())
+    sorted_col_denorm_df = denormalized_df.reindex(axis=1, labels=sorted_col).drop(columns=['transactions'])
+    
+    # normalize data
+    table_1 = sorted_col_denorm_df[['_id', 'account_id', 'transaction_count', 'bucket_start_date', 'bucket_end_date']]
+    table_2 = sorted_col_denorm_df[['_id', 'date', 'amount', 'transaction_code', 'symbol', 'price', 'total']]
+
+    # save to parquet
+    table_1.to_parquet('table_DIM.parquet')
+    table_2.to_parquet('table_FACT.parquet')
+
+    # load data to GCP Bucket (Staging Area)
+    destination_file_DIM = "table_DIM.parquet"
+    destination_file_FACT = "table_FACT.parquet"
+    fs.put(destination_file_DIM, f"{BUCKET_NAME}/staging_area/{destination_file_DIM}")
+    fs.put(destination_file_FACT, f"{BUCKET_NAME}/staging_area/{destination_file_FACT}")
+
+    # Optionally, delete the local downloaded data file
+    os.remove(destination_file_DIM)
+    os.remove(destination_file_FACT)
+    logging.info("Transformed data and loaded to staging area")
 
 def _load():
-    print("Loading data to destination")
+    logging.info("Loading data to destination")
+    # Construct a BigQuery client object.
+    client = bigquery.Client.from_service_account_json(CREDENTIALS_PATH)
+    
+    # define path
+    dataset_name = DATASET_NAME
+    table_name_dim = "transactions_DIM"
+    table_name_fact = "transactions_FACT"
+    
+    # TODO(developer): Set table_id to the ID of the table to create.
+    table_dim_id = f"{PROJECT_ID}.{dataset_name}.{table_name_dim}"
+    table_fact_id = f"{PROJECT_ID}.{dataset_name}.{table_name_fact}"
+    
+    job_config = bigquery.LoadJobConfig(
+        # uncomment to overwrite the table.
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        source_format=bigquery.SourceFormat.PARQUET,
+    )
+    uri_dim = f"gs://{BUCKET_NAME}/staging_area/table_DIM.parquet"
+    uri_fact = f"gs://{BUCKET_NAME}/staging_area/table_FACT.parquet"
+
+    # load dim table
+    load_job = client.load_table_from_uri(
+        uri_dim, table_dim_id, job_config=job_config
+    )  # Make an API request.
+
+    # load fact table
+    load_job = client.load_table_from_uri(
+        uri_fact, table_fact_id, job_config=job_config
+    )  # Make an API request.
+
+    load_job.result()  # Waits for the job to complete.
+
+    destination_table_dim = client.get_table(table_dim_id)
+    destination_table_fact = client.get_table(table_fact_id)
+
+    logging.info("Loaded {} rows to {}.".format(destination_table_dim.num_rows, table_name_dim))
+    logging.info("Loaded {} rows to {}.".format(destination_table_fact.num_rows, table_name_fact))
 
 def _clear_staging():
-    print("Clearing staging area")
+    logging.info("Clearing staging area")
+    """Deletes a blob from the bucket."""
+    bucket_name = BUCKET_NAME
+    blob_names = ['table_DIM.parquet', 'table_FACT.parquet']
+
+    storage_client = gcs.Client.from_service_account_json(CREDENTIALS_PATH)
+
+    bucket = storage_client.bucket(bucket_name)
+    for blob_name in blob_names:
+        blob = bucket.blob(blob_name)
+        generation_match_precondition = None
+
+        # Optional: set a generation-match precondition to avoid potential race conditions
+        # and data corruptions. The request to delete is aborted if the object's
+        # generation number does not match your precondition.
+        blob.reload()  # Fetch blob metadata to use in generation_match_precondition.
+        generation_match_precondition = blob.generation
+
+        blob.delete(if_generation_match=generation_match_precondition)
+
+        logging.info(f"Blob {blob_name} deleted.")
 
 default_args ={
     "owner": "Patcharanat (Ken) :D",
-    "retries": 3,
-    "retry_delay": timedelta(minutes=3),
-    "schedule_interval": "@daily", # daily transactions
-    "start_date": datetime(2023, 8, 17),
+    # "retries": 3,
+    "retry_delay": timedelta(minutes=1),
+    "schedule_interval": None,
+    # "schedule_interval": "@daily", # daily transactions
+    # "start_date": datetime(2023, 8, 17),
+    "start_date": timezone.datetime(2023, 8, 11)
 }
 
 with DAG(

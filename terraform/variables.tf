@@ -7,5 +7,9 @@ variable "region" {
 }
 
 variable "bucket" {
-  default = "td-bucket"
+  default = "td-bucket-assignment-kde"
+}
+
+variable "dataset_id" {
+  default = "td_tech_dataset_assignment_kde"
 }
