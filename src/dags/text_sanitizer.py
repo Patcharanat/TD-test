@@ -19,7 +19,7 @@ class TextSanitizer:
                 f.close()
             elif 'mongodb.net' in source: # source = "mongodb+srv://{MONGODB_USERNAME}:{MONGODB_PASSWORD}@cluster.mongodb.net/"
                 # read text from source database
-                # the process of sanitization might be different from reading from file e.g. using pymongo and pandas to handle data
+                # the process of sanitization might be different from reading file e.g. using pymongo and pandas to handle data
                 pass
         except:
             raise ValueError('Error from "source" argument')

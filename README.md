@@ -90,7 +90,9 @@ terraform destroy
     - MongoDB timeout with `MongoServerSelectionError` needed to keep update my IP address in MongoDB Atlas Network Access after no longer using it for a while. 
 
 2. Docker
-    - *developing*
+    - Using airflow backend volumes without specify correctly at the last part of `.yml` file causing the container to restart continuously due to the error `airflow init db` error.
+    - Airflow container need the google credentials and requirements.txt to be built first before running the container, so I have to extend the official airflow image additionally with [Dockerfile](./Dockerfile).
+    - Using **"parquet"** file type need to install `pyarrow` library in the container, which can conflict with python version if the pulled image is not with the right python version.
 
 3. Airflow (DAG script and UI)
     - This is the most frustated part for me, spending a lot of time debugging the DAG script via the UI. When it's about dependencies conflict, I have to rebuild the image and restart the container to get the right dependencies which is very time-consuming.
@@ -120,11 +122,16 @@ python text_sanitizer.py source.txt target.txt True
 python ./src/dags/text_sanitizer.py
 ```
 
-involving the following files:
+Involving the following files:
 - [text_sanitizer.py](./src/dags/text_sanitizer.py)
-- [source.txt](./src/dags/source.txt)
-- [target.txt](./src/dags/target.txt)
+- [source.txt](./src/dags/source.txt) (for class testing)
+- [target.txt](./src/dags/target.txt) (for class testing)
 
 ## Question 3: SQL
 
 The SQL query is written in [sql_query.sql](./sql_query.sql)
+
+![SQL Design](./picture/sql-concept.png)
+
+---
+Thanks for reading :)
