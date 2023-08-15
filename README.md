@@ -29,7 +29,11 @@ The answers are coresponding to the following questions:
 
 ***Note1: To run the demo, please follow the steps below:***
 1. Create a new cluster0 (free tier) in MongoDB Atlas and connect Network IP
-2. create `.env` file containing:
+2. Clone this repository
+```bash
+git clone https://github.com/Patcharanat/TD-test.git
+```
+3. Create `.env` file containing:
 ```
 MONGODB_USERNAME    = your_mongodb_username
 MONGODB_PASSWORD    = your_mongodb_password
@@ -40,10 +44,10 @@ PROJECT_ID                      = your_project_id
 GCP_BUCKET                      = your_test_gcp_bucket
 DATASET_NAME                    = your_test_dataset_name
 ```
-3. Create a new project in GCP
-4. Create a new service account in GCP
-5. Download the service account key as `td_service_account.json` and put it in the root directory
-6. Add the following roles to the service account:
+4. Create a new project in GCP
+5. Create a new service account in GCP
+6. Download the service account key as `td_service_account.json` and put it in the root directory
+7. Add the following roles to the service account:
     - BigQuery Admin
     - BigQuery Data Editor
     - BigQuery Data Viewer
@@ -53,7 +57,7 @@ DATASET_NAME                    = your_test_dataset_name
     - Storage Object Admin
     - Storage Object Creator
     - Storage Object Viewer
-7. Run the following commands:
+8. Run the following commands:
 ```bash
 terraform init
 
@@ -102,8 +106,8 @@ terraform destroy
 4. Terraform
     - When applying terraform, I found out service account doesn't have permission enough to create bucket, so I added the following role to the service account:
         - Storage Admin
-    - defining schema for data we intend to store in BigQuery is a hard work, then I found out that we can use `autodetect` option in BigQuery load job to automatically infer the schema from the data. This is a good practice for handling semi-structured data.
-    - instead of using `bigquery` module, using `google_bigquery_dataset` and `google_bigquery_table` modules is more convenient and simpler for me.
+    - Defining schema for data we intend to store in BigQuery is a hard work, then I found out that we can use `autodetect` option in BigQuery load job to automatically infer the schema from the data. This is a good practice for handling semi-structured data.
+    - Instead of using `bigquery` module, using `google_bigquery_dataset` and `google_bigquery_table` resources are more convenient and simpler for me.
 
 
 ## Question 2: Text Sanitizer

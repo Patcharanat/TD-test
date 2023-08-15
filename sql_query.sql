@@ -9,6 +9,7 @@ WITH denormalized AS (
 
 product_sales AS (
   SELECT
+    product_class_id,
     product_name,
     SUM(total) AS sales_value
   FROM denormalized
@@ -25,6 +26,7 @@ ranked_products AS (
   LEFT JOIN `dataset.Product Class` AS product_class
   ON product_sales.product_class_id = product_class.product_class_id
 )
+
 SELECT
   product_class_name,
   rank,
